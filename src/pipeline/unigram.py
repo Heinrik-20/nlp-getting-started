@@ -1,13 +1,12 @@
 import pandas as pd
 import numpy as np
-import re
-import string
 import nltk
 
 # Generating embeddings using an LDA model
 from gensim.models import LdaModel
 from gensim.models import TfidfModel
 from .strategy import EmbeddingStrategy
+from typing import List
 
 # Typing
 from typing import Optional, Tuple
@@ -16,12 +15,12 @@ nltk.download('stopwords')
 nltk.download('wordnet')
 
 class UnigramEmbedding(EmbeddingStrategy):
-    def __init__(self, file_path: str) -> None:
+    def __init__(self, train_path: str, test_path: str) -> None:
 
         self.lda = None
         self.tfidf = None
 
-        super(UnigramEmbedding, self).__init__(file_path)
+        super(UnigramEmbedding, self).__init__(train_path, test_path)
         return
     
     def generate_embedding(self):
@@ -30,12 +29,12 @@ class UnigramEmbedding(EmbeddingStrategy):
         self.cleaning_data()
 
         print("Generating LDA embeddiing")
-        lda = self.generate_lda()
+        lda_train, lda_test = self.generate_lda()
 
         print("Generation TFIDF embedding")
-        tfidf = self.generate_tfidf()
+        tfidf_train, tfidf_test = self.generate_tfidf()
 
-        return pd.concat([lda, tfidf], axis=1)
+        return pd.concat([lda_train, tfidf_train], axis=1), pd.concat([lda_test, tfidf_test], axis=1)
     
     def generate_lda(
         self,
@@ -48,7 +47,7 @@ class UnigramEmbedding(EmbeddingStrategy):
     ):
 
         lda = LdaModel(
-            corpus=self.bow,
+            corpus=self.all_bow,
             id2word=self.id2word,
             chunksize=chunksize,
             alpha='auto',
@@ -61,40 +60,48 @@ class UnigramEmbedding(EmbeddingStrategy):
         )
 
         columns = [f"Topic {i}" for i in range(num_topics)]
-        values = []
+        train_values = []
+        test_values = []
 
-        for topic_distr in lda.get_document_topics(self.bow):
-            distri = []
-            i, j = 0, 0
-            topic_length = len(topic_distr)
-            while i < num_topics:
-                if topic_distr[j][0] != i:
-                    distri.append(0)
-                else:
-                    distri.append(topic_distr[j][1])
-                    j = min(topic_length - 1, j + 1)
-                i += 1
-            values.append(distri)
+        for bow, values in zip([self.train_bow, self.test_bow], [train_values, test_values]):
+            for topic_distr in lda.get_document_topics(bow):
+                distri = []
+                i, j = 0, 0
+                topic_length = len(topic_distr)
+                while i < num_topics:
+                    if topic_distr[j][0] != i:
+                        distri.append(0)
+                    else:
+                        distri.append(topic_distr[j][1])
+                        j = min(topic_length - 1, j + 1)
+                    i += 1
+                values.append(distri)
         
         self.lda = lda
 
-        return pd.DataFrame(data=values, columns=columns)
+        return pd.DataFrame(data=train_values, columns=columns), pd.DataFrame(data=test_values, columns=columns)
     
     def generate_tfidf(self,):
-
-        values = []
-        tfidf = TfidfModel(self.bow)
+        
+        tfidf = TfidfModel(self.all_bow)
         unique_tokens = len(self.dictionary)
-        for text in self.bow:
-            embedding = np.zeros(shape=(unique_tokens, ))
 
-            if len(text):
-                output = np.array(tfidf[text])
-                embedding[output[:, 0].astype(np.int32)] = output[:, 1]
-                
-            values.append(embedding)
+        train_values = []
+        test_values = []
+        columns = [f'Word_{i}' for i in range(unique_tokens)]
+        
+        for bow, values in zip([self.train_bow, self.test_bow], [train_values, test_values]):
+            for text in bow:
+                embedding = np.zeros(shape=(unique_tokens, ))
+
+                if len(text):
+                    output = np.array(tfidf[text])
+                    embedding[output[:, 0].astype(np.int32)] = output[:, 1]
+                    
+                values.append(embedding)
 
         self.tfidf = tfidf
 
-        return pd.DataFrame(data=values, columns=[f'Word_{i}' for i in range(unique_tokens)])
+        return pd.DataFrame(data=train_values, columns=columns), pd.DataFrame(data=test_values, columns=columns)
+    
     
