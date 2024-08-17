@@ -34,7 +34,12 @@ class UnigramEmbedding(EmbeddingStrategy):
         print("Generation TFIDF embedding")
         tfidf_train, tfidf_test = self.generate_tfidf()
 
-        return pd.concat([lda_train, tfidf_train], axis=1), pd.concat([lda_test, tfidf_test], axis=1)
+        train_df = pd.concat([lda_train, tfidf_train], axis=1)
+        train_df['target'] = self.train_df['target']
+
+        test_df = pd.concat([lda_test, tfidf_test], axis=1)
+
+        return train_df, test_df
     
     def generate_lda(
         self,
